@@ -69,8 +69,11 @@
 
     <scm>
         <connection>
-            scm:hg:http://thimbleware.com/hg/jmemcached
+            scm:hg:https://jmemcache-daemon.googlecode.com/hg/
         </connection>
+        <url>
+            http://code.google.com/p/jmemcache-daemon/source/list
+        </url>
         <developerConnection>
             scm:hg:file:///var/hg/jmemcached
         </developerConnection>
