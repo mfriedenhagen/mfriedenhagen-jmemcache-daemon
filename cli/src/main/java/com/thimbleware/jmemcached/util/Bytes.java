@@ -368,6 +368,7 @@ public final class Bytes
 	 *
 	 * @return The string for this byte count
 	 */
+	@Override
 	public String toString()
 	{
 		if (value >= 0)
@@ -409,8 +410,8 @@ public final class Bytes
 	 *            The units
 	 * @return The formatted string
 	 */
-	private String unitString(final double value, final String units)
+	private static String unitString(final double value, final String units)
 	{
-		return "" + units;
+		return Double.toString(value) + units;
 	}
 }
