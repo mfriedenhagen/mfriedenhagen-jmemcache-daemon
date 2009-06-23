@@ -16,7 +16,6 @@
 package com.thimbleware.jmemcached;
 
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -190,7 +189,7 @@ public class Main {
         
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
-                if (daemon != null && daemon.isRunning()) daemon.stop();
+                if (daemon.isRunning()) daemon.stop();
             }
         }));
     }
