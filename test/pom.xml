@@ -11,38 +11,28 @@
     <artifactId>jmemcached-test</artifactId>
 
     <dependencies>
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.4</version>
-            <scope>test</scope>
-        </dependency>
 
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-jdk14</artifactId>
-            <version>1.5.5</version>
             <scope>test</scope>
         </dependency>
-        
+
         <dependency>
             <groupId>com.thimbleware.jmemcached</groupId>
             <artifactId>jmemcached-core</artifactId>
-            <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.thimbleware.jmemcached</groupId>
             <artifactId>jmemcached-cli</artifactId>
-            <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>net.spy.memcached</groupId>
             <artifactId>memcached-client</artifactId>
-            <version>2.3</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
