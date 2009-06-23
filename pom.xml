@@ -75,4 +75,60 @@
             scm:hg:file:///var/hg/jmemcached
         </developerConnection>
     </scm>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.5</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <artifactId>jmemcached-core</artifactId>
+                <groupId>com.thimbleware.jmemcached</groupId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <artifactId>jmemcached-cli</artifactId>
+                <groupId>com.thimbleware.jmemcached</groupId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <artifactId>slf4j-api</artifactId>
+                <groupId>org.slf4j</groupId>
+                <version>1.5.5</version>
+            </dependency>
+            <dependency>
+                <artifactId>slf4j-jdk14</artifactId>
+                <groupId>org.slf4j</groupId>
+                <version>1.5.5</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.netty</groupId>
+                <artifactId>netty</artifactId>
+                <version>3.1.0.BETA3</version>
+            </dependency>
+            <dependency>
+                <groupId>net.spy.memcached</groupId>
+                <artifactId>memcached-client</artifactId>
+                <version>2.3</version>
+            </dependency>
+            <dependency>
+                <artifactId>commons-cli</artifactId>
+                <groupId>commons-cli</groupId>
+                <version>1.1</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <properties>
+        <!--
+            compare:
+            http://docs.codehaus.org/display/MAVENUSER/POM+Element+for+Source+File+Encoding
+        -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
 </project>
