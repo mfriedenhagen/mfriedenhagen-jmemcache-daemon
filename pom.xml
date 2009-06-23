@@ -6,7 +6,7 @@
     <packaging>pom</packaging>
     <version>0.9-SNAPSHOT</version>
     <name>jmemcached Parent Project</name>
-    <url>http://www.thimbleware.com/projects/jmemcached</url>
+    <url>http://code.google.com/p/jmemcache-daemon/</url>
 
     <modules>
         <module>core</module>
