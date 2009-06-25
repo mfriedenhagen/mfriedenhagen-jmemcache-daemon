@@ -17,7 +17,7 @@ public class MemoryMappedBlockStoreTest {
 
     @Before
     public void setup() throws IOException {
-        bs = new MemoryMappedBlockStore(400000, "test.dat", 8);
+        bs = new MemoryMappedBlockStore(400000, "target/test.dat", 8);
     }
 
     @After
