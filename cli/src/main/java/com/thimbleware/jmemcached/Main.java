@@ -24,9 +24,9 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.PosixParser;
 
 import com.thimbleware.jmemcached.storage.CacheStorage;
+import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferCacheStorage;
 import com.thimbleware.jmemcached.storage.hash.LRUCacheStorageDelegate;
 import com.thimbleware.jmemcached.storage.mmap.MemoryMappedBlockStore;
-import com.thimbleware.jmemcached.storage.mmap.MemoryMappedCacheStorage;
 import com.thimbleware.jmemcached.util.Bytes;
 
 
