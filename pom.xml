@@ -12,10 +12,24 @@
         <module>core</module>
         <module>cli</module>
         <module>test</module>
-    </modules>
+        <module>ws</module>
+  </modules>
+
 
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <source>1.5</source>
+                        <target>1.5</target>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -113,7 +127,7 @@
             <dependency>
                 <groupId>org.jboss.netty</groupId>
                 <artifactId>netty</artifactId>
-                <version>3.1.0.BETA3</version>
+                <version>3.1.0.GA</version>
             </dependency>
             <dependency>
                 <groupId>net.spy.memcached</groupId>
