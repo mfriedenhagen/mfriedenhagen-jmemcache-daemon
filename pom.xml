@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.thimbleware.jmemcached</groupId>
+    <artifactId>jmemcached-parent</artifactId>
+    <packaging>pom</packaging>
+    <version>0.9-SNAPSHOT</version>
+    <name>jmemcached Parent Project</name>
+    <url>http://code.google.com/p/jmemcache-daemon/</url>
+
+    <modules>
+        <module>core</module>
+        <module>cli</module>
+        <module>test</module>
+        <module>ws</module>
+  </modules>
+
+
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <source>1.5</source>
+                        <target>1.5</target>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.5</source>
+                    <target>1.5</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+    
+    <inceptionYear>2008</inceptionYear>
+
+    <licenses>
+        <license>
+            <name>Apache 2</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <organization>
+        <name>ThimbleWare</name>
+        <url>http://thimbleware.com/</url>
+    </organization>
+
+    <developers>
+        <developer>
+            <email>ryan@thimbleware.com</email>
+            <name>Ryan Daum</name>
+            <organization>ThimbleWare Inc</organization>
+            <organizationUrl>http://www.thimbleware.com/</organizationUrl>
+            <roles>
+                <role>maintainer</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <distributionManagement>
+        <repository>
+            <id>thimbleware.repo</id>
+            <name>ThimbleWare Repository</name>
+            <url>scp://ryan@thimbleware.com//var/www/maven</url>
+        </repository>
+        <snapshotRepository>
+            <id>thimbleware.repo</id>
+            <name>ThimbleWare Repository</name>
+            <url>scp://ryan@thimbleware.com//var/www/maven</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <scm>
+        <connection>
+            scm:hg:https://jmemcache-daemon.googlecode.com/hg/
+        </connection>
+        <url>
+            http://code.google.com/p/jmemcache-daemon/source/list
+        </url>
+        <developerConnection>
+            scm:hg:file:///var/hg/jmemcached
+        </developerConnection>
+    </scm>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.5</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <artifactId>jmemcached-core</artifactId>
+                <groupId>com.thimbleware.jmemcached</groupId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <artifactId>jmemcached-cli</artifactId>
+                <groupId>com.thimbleware.jmemcached</groupId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <artifactId>slf4j-api</artifactId>
+                <groupId>org.slf4j</groupId>
+                <version>1.5.5</version>
+            </dependency>
+            <dependency>
+                <artifactId>slf4j-jdk14</artifactId>
+                <groupId>org.slf4j</groupId>
+                <version>1.5.5</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.netty</groupId>
+                <artifactId>netty</artifactId>
+                <version>3.1.0.GA</version>
+            </dependency>
+            <dependency>
+                <groupId>net.spy.memcached</groupId>
+                <artifactId>memcached-client</artifactId>
+                <version>2.3</version>
+            </dependency>
+            <dependency>
+                <artifactId>commons-cli</artifactId>
+                <groupId>commons-cli</groupId>
+                <version>1.1</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <properties>
+        <!--
+            compare:
+            http://docs.codehaus.org/display/MAVENUSER/POM+Element+for+Source+File+Encoding
+        -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+</project>
