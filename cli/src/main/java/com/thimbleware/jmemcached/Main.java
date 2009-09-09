@@ -15,16 +15,18 @@
  */
 package com.thimbleware.jmemcached;
 
-import org.apache.commons.cli.*;
-
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 
-import com.thimbleware.jmemcached.storage.mmap.MemoryMappedBlockStore;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.PosixParser;
+
 import com.thimbleware.jmemcached.storage.CacheStorage;
-import com.thimbleware.jmemcached.storage.hash.LRUCacheStorageDelegate;
-import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferBlockStore;
 import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferCacheStorage;
+import com.thimbleware.jmemcached.storage.hash.LRUCacheStorageDelegate;
+import com.thimbleware.jmemcached.storage.mmap.MemoryMappedBlockStore;
 import com.thimbleware.jmemcached.util.Bytes;
 
 
@@ -187,7 +189,7 @@ public class Main {
         
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
-                if (daemon != null && daemon.isRunning()) daemon.stop();
+                if (daemon.isRunning()) daemon.stop();
             }
         }));
     }
