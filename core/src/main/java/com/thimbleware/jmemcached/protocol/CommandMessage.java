@@ -15,7 +15,7 @@
  */
 package com.thimbleware.jmemcached.protocol;
 
-import com.thimbleware.jmemcached.MCElement;
+import com.thimbleware.jmemcached.CacheElement;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -24,14 +24,14 @@ import java.util.List;
 /**
  * The payload object holding the parsed message.
  */
-public final class CommandMessage implements Serializable {
+public final class CommandMessage<CACHE_ELEMENT extends CacheElement> implements Serializable {
 
     public static enum ErrorType {
         OK, ERROR, CLIENT_ERROR
     }
 
     public Command cmd;
-    public MCElement element;
+    public CACHE_ELEMENT element;
     public List<String> keys;
     public boolean noreply;
     public Long cas_key;

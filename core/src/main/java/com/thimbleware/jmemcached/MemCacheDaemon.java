@@ -23,22 +23,19 @@ import org.jboss.netty.channel.ChannelPipelineFactory;
 import org.jboss.netty.channel.group.ChannelGroupFuture;
 import org.jboss.netty.channel.group.DefaultChannelGroup;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
-import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
-import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Executor;
 
 /**
  * The actual daemon - responsible for the binding and configuration of the network configuration.
  */
-public class MemCacheDaemon {
+public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
 
-    final Logger logger = LoggerFactory.getLogger(MemCacheDaemon.class);
+    final Logger log = LoggerFactory.getLogger(MemCacheDaemon.class);
 
     public static String memcachedVersion = "0.9";
 
@@ -49,7 +46,7 @@ public class MemCacheDaemon {
     private boolean verbose;
     private int idleTime;
     private InetSocketAddress addr;
-    private Cache cache;
+    private Cache<CACHE_ELEMENT> cache;
 
     private boolean running = false;
     private NioServerSocketChannelFactory channelFactory;
@@ -59,16 +56,15 @@ public class MemCacheDaemon {
     public MemCacheDaemon() {
     }
 
-    public MemCacheDaemon(Cache cache) {
+    public MemCacheDaemon(Cache<CACHE_ELEMENT> cache) {
         this.cache = cache;
     }
 
     /**
      * Bind the network connection and start the network processing threads.
-     *
-     * @throws IOException
      */
-    public void start() throws IOException {
+    public void start() {
+        // TODO provide tweakable options here for passing in custom executors.
         channelFactory =
                 new NioServerSocketChannelFactory(
                         Executors.newCachedThreadPool(),
@@ -91,7 +87,8 @@ public class MemCacheDaemon {
         Channel serverChannel = bootstrap.bind(addr);
         allChannels.add(serverChannel);
 
-        logger.info("Listening on " + String.valueOf(addr.getHostName()) + ":" + addr.getPort());
+        log.info("Listening on " + String.valueOf(addr.getHostName()) + ":" + addr.getPort());
+
         running = true;
     }
 
@@ -106,13 +103,22 @@ public class MemCacheDaemon {
     }
 
     public void stop() {
+        log.info("terminating daemon; closing all channels");
         ChannelGroupFuture future = allChannels.close();
         future.awaitUninterruptibly();
         if (!future.isCompleteSuccess()) {
-            System.err.println("shit");
+            throw new RuntimeException("failure to complete closing all network channels");
+        }
+        log.info("channels closed, freeing cache storage");
+        try {
+            cache.close();
+        } catch (IOException e) {
+            throw new RuntimeException("exception while closing storage", e);
         }
         channelFactory.releaseExternalResources();
+
         running = false;
+        log.info("successfully shut down");
     }
 
     public static void setMemcachedVersion(String memcachedVersion) {

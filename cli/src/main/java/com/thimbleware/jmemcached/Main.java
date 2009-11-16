@@ -15,19 +15,15 @@
  */
 package com.thimbleware.jmemcached;
 
+import com.thimbleware.jmemcached.storage.bytebuffer.BlockStorageCacheStorage;
+import com.thimbleware.jmemcached.storage.CacheStorage;
+import org.apache.commons.cli.*;
+
 import java.net.InetSocketAddress;
 
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.PosixParser;
-
-import com.thimbleware.jmemcached.storage.CacheStorage;
-import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferCacheStorage;
-import com.thimbleware.jmemcached.storage.hash.LRUCacheStorageDelegate;
-import com.thimbleware.jmemcached.storage.mmap.MemoryMappedBlockStore;
 import com.thimbleware.jmemcached.util.Bytes;
+import com.thimbleware.jmemcached.storage.hash.ConcurrentLinkedHashMap;
+import com.thimbleware.jmemcached.storage.mmap.MemoryMappedBlockStore;
 
 
 /**
@@ -172,15 +168,17 @@ public class Main {
 
         // create daemon and start it
         final MemCacheDaemon daemon = new MemCacheDaemon();
-        CacheStorage cacheStorage;
-        if (memoryMapped) {
+
+        CacheStorage<String, LocalCacheElement> storage;
+        if (!memoryMapped)
+            storage = ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.FIFO, max_size, maxBytes);
+        else  {
             MemoryMappedBlockStore mappedBlockStore = new MemoryMappedBlockStore((int)maxBytes, mmapFile, blockSize);
-            cacheStorage = new ByteBufferCacheStorage(mappedBlockStore, max_size, (int)ceiling);
+
+            storage = new BlockStorageCacheStorage(mappedBlockStore, (int)ceiling, max_size);
         }
-        else
-            cacheStorage = new LRUCacheStorageDelegate(max_size, maxBytes, ceiling);
-        
-        daemon.setCache(new Cache(cacheStorage));
+
+        daemon.setCache(new CacheImpl(storage));
         daemon.setBinary(binary);
         daemon.setAddr(addr);
         daemon.setIdleTime(idle);
@@ -189,7 +187,7 @@ public class Main {
         
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
-                if (daemon.isRunning()) daemon.stop();
+                if (daemon != null && daemon.isRunning()) daemon.stop();
             }
         }));
     }
