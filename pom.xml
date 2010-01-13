@@ -133,6 +133,11 @@
             <name>Google Code Releasess</name>
             <url>http://oss.sonatype.org/content/repositories/googlecode-snapshots</url>
         </snapshotRepository>
+        <site>
+            <id>google-code-site</id>
+            <name>Google Code Site</name>
+            <url>file:///var/www/sites</url>
+        </site>
     </distributionManagement>
 
     <!-- note developer connection is the local repository, not remote. won't work for hudson, etc. -->
