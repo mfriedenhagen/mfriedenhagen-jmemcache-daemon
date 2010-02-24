@@ -31,7 +31,6 @@
                     <version>2.11</version>
                 </plugin>
             </plugins>
-            </plugins>
         </pluginManagement>
 
         <plugins>
