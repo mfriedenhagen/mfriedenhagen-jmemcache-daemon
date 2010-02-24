@@ -15,13 +15,14 @@
  */
 package com.thimbleware.jmemcached;
 
-import com.thimbleware.jmemcached.protocol.text.MemcachedPipelineFactory;
 import com.thimbleware.jmemcached.protocol.binary.MemcachedBinaryPipelineFactory;
+import com.thimbleware.jmemcached.protocol.text.MemcachedPipelineFactory;
 import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelPipelineFactory;
 import org.jboss.netty.channel.group.ChannelGroupFuture;
 import org.jboss.netty.channel.group.DefaultChannelGroup;
+import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,8 +40,7 @@ public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
 
     public static String memcachedVersion = "0.9";
 
-    private int receiveBufferSize = 32768 * 1024;
-    private int sendBufferSize = 32768;
+    private int frameSize = 32768 * 1024;
 
     private boolean binary = false;
     private boolean verbose;
@@ -49,7 +49,7 @@ public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
     private Cache<CACHE_ELEMENT> cache;
 
     private boolean running = false;
-    private NioServerSocketChannelFactory channelFactory;
+    private ServerSocketChannelFactory channelFactory;
     private DefaultChannelGroup allChannels;
 
 
@@ -73,16 +73,16 @@ public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
         allChannels = new DefaultChannelGroup("jmemcachedChannelGroup");
 
         ServerBootstrap bootstrap = new ServerBootstrap(channelFactory);
-      
+
         ChannelPipelineFactory pipelineFactory;
         if (binary)
             pipelineFactory = createMemcachedBinaryPipelineFactory(cache, memcachedVersion, verbose, idleTime, allChannels);
         else
-            pipelineFactory = createMemcachedPipelineFactory(cache, memcachedVersion, verbose, idleTime, receiveBufferSize, allChannels);
+            pipelineFactory = createMemcachedPipelineFactory(cache, memcachedVersion, verbose, idleTime, frameSize, allChannels);
 
-        bootstrap.setOption("child.tcpNoDelay", true);
-        bootstrap.setOption("child.keepAlive", true);
         bootstrap.setPipelineFactory(pipelineFactory);
+        bootstrap.setOption("sendBufferSize", 65536 );
+        bootstrap.setOption("receiveBufferSize", 65536);
 
         Channel serverChannel = bootstrap.bind(addr);
         allChannels.add(serverChannel);
@@ -104,6 +104,7 @@ public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
 
     public void stop() {
         log.info("terminating daemon; closing all channels");
+
         ChannelGroupFuture future = allChannels.close();
         future.awaitUninterruptibly();
         if (!future.isCompleteSuccess()) {
@@ -121,18 +122,6 @@ public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
         log.info("successfully shut down");
     }
 
-    public static void setMemcachedVersion(String memcachedVersion) {
-        MemCacheDaemon.memcachedVersion = memcachedVersion;
-    }
-
-    public void setReceiveBufferSize(int receiveBufferSize) {
-        this.receiveBufferSize = receiveBufferSize;
-    }
-
-    public void setSendBufferSize(int sendBufferSize) {
-        this.sendBufferSize = sendBufferSize;
-    }
-
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
     }
@@ -145,12 +134,11 @@ public class MemCacheDaemon<CACHE_ELEMENT extends CacheElement> {
         this.addr = addr;
     }
 
-
-    public Cache getCache() {
+    public Cache<CACHE_ELEMENT> getCache() {
         return cache;
     }
 
-    public void setCache(Cache cache) {
+    public void setCache(Cache<CACHE_ELEMENT> cache) {
         this.cache = cache;
     }
 

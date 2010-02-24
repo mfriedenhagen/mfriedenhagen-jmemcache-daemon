@@ -8,11 +8,16 @@
     <parent>
         <groupId>com.thimbleware.jmemcached</groupId>
         <artifactId>jmemcached-parent</artifactId>
-        <version>0.9-SNAPSHOT</version>
+        <version>0.10-SNAPSHOT</version>
         <relativePath>../</relativePath>
     </parent>
 
     <dependencies>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+        </dependency>
 
         <dependency>
             <artifactId>slf4j-api</artifactId>

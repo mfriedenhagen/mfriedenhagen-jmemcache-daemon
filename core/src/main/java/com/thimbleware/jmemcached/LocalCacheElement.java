@@ -19,7 +19,11 @@ import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
+
+import static java.lang.Integer.parseInt;
+import static java.lang.String.valueOf;
 
 /**
  * Represents information about a cache entry.
@@ -28,7 +32,7 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
     private int expire ;
     private int flags;
     private byte[] data;
-    private String keystring;
+    private Key key;
     private long casUnique = 0L;
     private boolean blocked = false;
     private long blockedUntil;
@@ -36,14 +40,15 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
     public LocalCacheElement() {
     }
 
-    public LocalCacheElement(String keystring) {
-        this.keystring = keystring;
+    public LocalCacheElement(Key key) {
+        this.key = key;
     }
 
-    public LocalCacheElement(String keystring, int flags, int expire) {
-        this.keystring = keystring;
+    public LocalCacheElement(Key key, int flags, int expire, long casUnique) {
+        this.key = key;
         this.flags = flags;
         this.expire = expire;
+        this.casUnique = casUnique;
     }
 
     /**
@@ -57,6 +62,61 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         return getData().length;
     }
 
+    public LocalCacheElement append(LocalCacheElement element) {
+        int newLength = getData().length + element.getData().length;
+        LocalCacheElement replace = new LocalCacheElement(getKey(), getFlags(), getExpire(), 0L);
+        ByteBuffer b = ByteBuffer.allocateDirect(newLength);
+        b.put(getData());
+        b.put(element.getData());
+        replace.setData(new byte[newLength]);
+        b.flip();
+        b.get(replace.getData());
+        replace.setCasUnique(replace.getCasUnique() + 1);
+
+        return replace;
+    }
+
+    public LocalCacheElement prepend(LocalCacheElement element) {
+        int newLength = getData().length + element.getData().length;
+
+        LocalCacheElement replace = new LocalCacheElement(getKey(), getFlags(), getExpire(), 0L);
+        ByteBuffer b = ByteBuffer.allocateDirect(newLength);
+        b.put(element.getData());
+        b.put(getData());
+        replace.setData(new byte[newLength]);
+        b.flip();
+        b.get(replace.getData());
+        replace.setCasUnique(replace.getCasUnique() + 1);
+
+        return replace;
+    }
+
+    public static class IncrDecrResult {
+        int oldValue;
+        LocalCacheElement replace;
+
+        public IncrDecrResult(int oldValue, LocalCacheElement replace) {
+            this.oldValue = oldValue;
+            this.replace = replace;
+        }
+    }
+
+    public IncrDecrResult add(int mod) {
+        // TODO handle parse failure!
+        int old_val = parseInt(new String(getData())) + mod; // change value
+        if (old_val < 0) {
+            old_val = 0;
+
+        } // check for underflow
+
+        byte[] newData = valueOf(old_val).getBytes();
+
+        LocalCacheElement replace = new LocalCacheElement(getKey(), getFlags(), getExpire(), 0L);
+        replace.setData(newData);
+        replace.setCasUnique(replace.getCasUnique() + 1);
+
+        return new IncrDecrResult(old_val, replace);
+    }
 
     @Override
     public boolean equals(Object o) {
@@ -71,7 +131,7 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         if (expire != that.expire) return false;
         if (flags != that.flags) return false;
         if (!Arrays.equals(data, that.data)) return false;
-        if (!keystring.equals(that.keystring)) return false;
+        if (!key.equals(that.key)) return false;
 
         return true;
     }
@@ -81,14 +141,14 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         int result = expire;
         result = 31 * result + flags;
         result = 31 * result + (data != null ? Arrays.hashCode(data) : 0);
-        result = 31 * result + keystring.hashCode();
+        result = 31 * result + key.hashCode();
         result = 31 * result + (int) (casUnique ^ (casUnique >>> 32));
         result = 31 * result + (blocked ? 1 : 0);
         result = 31 * result + (int) (blockedUntil ^ (blockedUntil >>> 32));
         return result;
     }
 
-    public static LocalCacheElement key(String key) {
+    public static LocalCacheElement key(Key key) {
         return new LocalCacheElement(key);
     }
 
@@ -104,8 +164,8 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         return data;
     }
 
-    public String getKeystring() {
-        return keystring;
+    public Key getKey() {
+        return key;
     }
 
     public long getCasUnique() {
@@ -124,13 +184,11 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         this.casUnique = casUnique;
     }
 
-    public void setBlockedUntil(long blockedUntil) {
+    public void block(long blockedUntil) {
+        this.blocked = true;
         this.blockedUntil = blockedUntil;
     }
 
-    public void setBlocked(boolean blocked) {
-        this.blocked = blocked;
-    }
 
     public void setData(byte[] data) {
         this.data = data;
@@ -146,7 +204,8 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         while( readSize < length)
             readSize += in.read(data, readSize, length - readSize);
 
-        keystring = in.readUTF();
+        key = new Key(new byte[in.readInt()]);
+        in.read(key.bytes);
         casUnique = in.readLong();
         blocked = in.readBoolean();
         blockedUntil = in.readLong();
@@ -157,7 +216,8 @@ public final class LocalCacheElement implements CacheElement, Externalizable {
         out.writeInt(flags);
         out.writeInt(data.length);
         out.write(data);
-        out.writeUTF(keystring);
+        out.write(key.bytes.length);
+        out.write(key.bytes);
         out.writeLong(casUnique);
         out.writeBoolean(blocked);
         out.writeLong(blockedUntil);

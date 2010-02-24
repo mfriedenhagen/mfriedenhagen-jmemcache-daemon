@@ -17,6 +17,8 @@ package com.thimbleware.jmemcached;
 
 import com.thimbleware.jmemcached.storage.bytebuffer.BlockStorageCacheStorage;
 import com.thimbleware.jmemcached.storage.CacheStorage;
+import com.thimbleware.jmemcached.storage.bytebuffer.BlockStoreFactory;
+import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferBlockStore;
 import org.apache.commons.cli.*;
 
 import java.net.InetSocketAddress;
@@ -31,7 +33,8 @@ import com.thimbleware.jmemcached.storage.mmap.MemoryMappedBlockStore;
  *
  * Arguments in general parallel those of the C implementation.
  */
-public class Main {
+public class
+        Main {
 
     public static void main(String[] args) throws Exception {
         // look for external log4j.properties
@@ -39,7 +42,8 @@ public class Main {
         // setup command line options
         Options options = new Options();
         options.addOption("h", "help", false, "print this help screen");
-        options.addOption("f", "mapped-file", true, "use external (from JVM) heap through a memory mapped file");
+        options.addOption("bl", "block-store", false, "use external (from JVM) heap");
+        options.addOption("f", "mapped-file", false, "use external (from JVM) heap through a memory mapped file");
         options.addOption("bs", "block-size", true, "block size (in bytes) for external memory mapped file allocator.  default is 8 bytes");
         options.addOption("i", "idle", true, "disconnect after idle <x> seconds");
         options.addOption("p", "port", true, "port to listen on");
@@ -99,13 +103,17 @@ public class Main {
         }
 
         boolean memoryMapped = false;
-        String mmapFile = "";
         if (cmdline.hasOption("f")) {
             memoryMapped = true;
-            mmapFile = cmdline.getOptionValue("f");
         } else if (cmdline.hasOption("mapped-file")) {
             memoryMapped = true;
-            mmapFile = cmdline.getOptionValue("f");
+        }
+
+        boolean blockStore = false;
+        if (cmdline.hasOption("bl")) {
+            blockStore = true;
+        } else if (cmdline.hasOption("block-store")) {
+            blockStore = true;
         }
 
         boolean verbose = false;
@@ -154,29 +162,35 @@ public class Main {
             maxBytes = Runtime.getRuntime().maxMemory();
             System.out.println("Setting max memory size to JVM limit of " + Bytes.bytes(maxBytes).gigabytes() + "GB");
         } else {
-            System.out.println("ERROR : max memory size mandatory when external memory mapped file is specified");
+            System.out.println("ERROR : max memory size and ceiling size are mandatory when external memory mapped file is specified");
             return;
         }
 
-        if (!memoryMapped && maxBytes > Runtime.getRuntime().maxMemory()) {
+        if (!memoryMapped && !blockStore && maxBytes > Runtime.getRuntime().maxMemory()) {
             System.out.println("ERROR : JVM heap size is not big enough. use '-Xmx" + String.valueOf(maxBytes / 1024000) + "m' java argument before the '-jar' option.");
             return;
-        } else if (memoryMapped && maxBytes > Integer.MAX_VALUE) {
+        } else if ((memoryMapped || !blockStore) && maxBytes > Integer.MAX_VALUE) {
             System.out.println("ERROR : when external memory mapped, memory size may not exceed the size of Integer.MAX_VALUE (" + Bytes.bytes(Integer.MAX_VALUE).gigabytes() + "GB");
             return;
         }
 
         // create daemon and start it
-        final MemCacheDaemon daemon = new MemCacheDaemon();
+        final MemCacheDaemon<LocalCacheElement> daemon = new MemCacheDaemon<LocalCacheElement>();
 
-        CacheStorage<String, LocalCacheElement> storage;
-        if (!memoryMapped)
-            storage = ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.FIFO, max_size, maxBytes);
-        else  {
-            MemoryMappedBlockStore mappedBlockStore = new MemoryMappedBlockStore((int)maxBytes, mmapFile, blockSize);
+        CacheStorage<Key, LocalCacheElement> storage;
+        if (blockStore) {
+            BlockStoreFactory blockStoreFactory = ByteBufferBlockStore.getFactory();
 
-            storage = new BlockStorageCacheStorage(mappedBlockStore, (int)ceiling, max_size);
+            storage = new BlockStorageCacheStorage(16, (int)ceiling, blockSize, maxBytes, max_size, blockStoreFactory);
+        }  else if (memoryMapped) {
+            BlockStoreFactory blockStoreFactory = MemoryMappedBlockStore.getFactory();
+
+            storage = new BlockStorageCacheStorage(16, (int)ceiling, blockSize, maxBytes, max_size, blockStoreFactory);
         }
+        else  {
+            storage = ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.FIFO, max_size, maxBytes);
+        }
+
 
         daemon.setCache(new CacheImpl(storage));
         daemon.setBinary(binary);
@@ -184,10 +198,10 @@ public class Main {
         daemon.setIdleTime(idle);
         daemon.setVerbose(verbose);
         daemon.start();
-        
+
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
-                if (daemon != null && daemon.isRunning()) daemon.stop();
+                if (daemon.isRunning()) daemon.stop();
             }
         }));
     }

@@ -3,6 +3,7 @@ package com.thimbleware.jmemcached.protocol.text;
 import com.thimbleware.jmemcached.protocol.SessionStatus;
 import com.thimbleware.jmemcached.protocol.exceptions.IncorrectlyTerminatedPayloadException;
 import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.buffer.ChannelBufferIndexFinder;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.ChannelHandlerContext;
 import org.jboss.netty.channel.ChannelPipelineCoverage;
@@ -18,17 +19,14 @@ import org.slf4j.LoggerFactory;
  * The code here is heavily based on Netty's DelimiterBasedFrameDecoder, but has been modified because the
  * memcached protocol has two states: 1) processing CRLF delimited lines and 2) spooling results for SET/ADD
  */
-@ChannelPipelineCoverage("one")
-public class MemcachedFrameDecoder extends FrameDecoder {
+public final class MemcachedFrameDecoder extends FrameDecoder {
 
-    final Logger logger = LoggerFactory.getLogger(MemcachedFrameDecoder.class);
+    private final SessionStatus status;
 
-    private SessionStatus status;
-
-    private final ChannelBuffer delimiter;
     private final int maxFrameLength;
-    private volatile boolean discardingTooLongFrame;
-    private volatile long tooLongFrameLength;
+
+    private boolean discardingTooLongFrame;
+    private long tooLongFrameLength;
 
     /**
      * Creates a new instance.
@@ -40,7 +38,6 @@ public class MemcachedFrameDecoder extends FrameDecoder {
     public MemcachedFrameDecoder(SessionStatus status, int maxFrameLength) {
         this.status = status;
         validateMaxFrameLength(maxFrameLength);
-        this.delimiter = ChannelBuffers.wrappedBuffer(new byte[]{'\r', '\n'});
         this.maxFrameLength = maxFrameLength;
     }
 
@@ -50,30 +47,23 @@ public class MemcachedFrameDecoder extends FrameDecoder {
         // check the state. if we're WAITING_FOR_DATA that means instead of breaking into lines, we need N bytes
         // otherwise, we're waiting for input
         if (status.state == SessionStatus.State.WAITING_FOR_DATA) {
-            if (buffer.readableBytes() < status.bytesNeeded + delimiter.capacity()) return null;
+            if (buffer.readableBytes() < status.bytesNeeded + MemcachedResponseEncoder.CRLF.capacity()) return null;
 
             // verify delimiter matches at the right location
-            ChannelBuffer dest = ChannelBuffers.buffer(delimiter.capacity());
-            buffer.getBytes(status.bytesNeeded + buffer.readerIndex(), dest);
+            ChannelBuffer dest = buffer.slice(status.bytesNeeded + buffer.readerIndex(), 2);
 
-            if (!dest.equals(delimiter)) {
+            if (!dest.equals(MemcachedResponseEncoder.CRLF)) {
                 // before we throw error... we're ready for the next command
                 status.ready();
 
                 // error, no delimiter at end of payload
                 throw new IncorrectlyTerminatedPayloadException("payload not terminated correctly");
             } else {
-
                 status.processingMultiline();
 
                 // There's enough bytes in the buffer and the delimiter is at the end. Read it.
-
-                // Successfully decoded a frame.  Return the decoded frame.
-                ChannelBuffer result = ChannelBuffers.buffer(status.bytesNeeded);
-                buffer.readBytes(result);
-
-                // Consume
-                buffer.skipBytes(delimiter.capacity());
+                ChannelBuffer result = buffer.slice(buffer.readerIndex(), status.bytesNeeded);
+                buffer.skipBytes(status.bytesNeeded + MemcachedResponseEncoder.CRLF.capacity());
 
                 return result;
             }
@@ -81,15 +71,14 @@ public class MemcachedFrameDecoder extends FrameDecoder {
         } else {
             int minFrameLength = Integer.MAX_VALUE;
             ChannelBuffer foundDelimiter = null;
-            int frameLength = indexOf(buffer, delimiter);
+            int frameLength = buffer.bytesBefore(ChannelBufferIndexFinder.CRLF);
             if (frameLength >= 0 && frameLength < minFrameLength) {
                 minFrameLength = frameLength;
-                foundDelimiter = delimiter;
+                foundDelimiter = MemcachedResponseEncoder.CRLF;
             }
 
             if (foundDelimiter != null) {
                 int minDelimLength = foundDelimiter.capacity();
-                ChannelBuffer frame;
 
                 if (discardingTooLongFrame) {
                     // We've just finished discarding a very large frame.
@@ -107,8 +96,8 @@ public class MemcachedFrameDecoder extends FrameDecoder {
                     fail(minFrameLength);
                 }
 
-                frame = buffer.readBytes(minFrameLength);
-                buffer.skipBytes(minDelimLength);
+                ChannelBuffer frame = buffer.slice(buffer.readerIndex(), minFrameLength);
+                buffer.skipBytes(minFrameLength + minDelimLength);
 
                 status.processing();
 
@@ -130,36 +119,6 @@ public class MemcachedFrameDecoder extends FrameDecoder {
         throw new TooLongFrameException(
                 "The frame length exceeds " + maxFrameLength + ": " + frameLength);
     }
-
-    /**
-     * Returns the number of bytes between the readerIndex of the haystack and
-     * the first needle found in the haystack.  -1 is returned if no needle is
-     * found in the haystack.
-     */
-    private static int indexOf(ChannelBuffer haystack, ChannelBuffer needle) {
-        for (int i = haystack.readerIndex(); i < haystack.writerIndex(); i++) {
-            int haystackIndex = i;
-            int needleIndex;
-            for (needleIndex = 0; needleIndex < needle.capacity(); needleIndex++) {
-                if (haystack.getByte(haystackIndex) != needle.getByte(needleIndex)) {
-                    break;
-                } else {
-                    haystackIndex++;
-                    if (haystackIndex == haystack.writerIndex() &&
-                            needleIndex != needle.capacity() - 1) {
-                        return -1;
-                    }
-                }
-            }
-
-            if (needleIndex == needle.capacity()) {
-                // Found the needle from the haystack!
-                return i - haystack.readerIndex();
-            }
-        }
-        return -1;
-    }
-
 
     private static void validateMaxFrameLength(int maxFrameLength) {
         if (maxFrameLength <= 0) {

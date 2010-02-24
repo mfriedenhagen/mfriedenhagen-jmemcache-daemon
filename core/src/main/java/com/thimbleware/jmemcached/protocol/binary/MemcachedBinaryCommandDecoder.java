@@ -1,5 +1,6 @@
 package com.thimbleware.jmemcached.protocol.binary;
 
+import com.thimbleware.jmemcached.Key;
 import com.thimbleware.jmemcached.LocalCacheElement;
 import com.thimbleware.jmemcached.CacheElement;
 import com.thimbleware.jmemcached.protocol.Command;
@@ -8,19 +9,21 @@ import com.thimbleware.jmemcached.protocol.exceptions.MalformedCommandException;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandler;
 import org.jboss.netty.channel.ChannelHandlerContext;
 import org.jboss.netty.channel.ChannelPipelineCoverage;
 import org.jboss.netty.handler.codec.frame.FrameDecoder;
 
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.nio.ByteOrder;
 
 /**
  */
-@ChannelPipelineCoverage("all")
+@ChannelHandler.Sharable
 public class MemcachedBinaryCommandDecoder extends FrameDecoder {
 
-
+    public static final Charset USASCII = Charset.forName("US-ASCII");
 
     public static enum BinaryCommand {
         Get(0x00, Command.GET, false),
@@ -134,9 +137,9 @@ public class MemcachedBinaryCommandDecoder extends FrameDecoder {
             ChannelBuffer keyBuffer = ChannelBuffers.buffer(ByteOrder.BIG_ENDIAN, keyLength);
             channelBuffer.readBytes(keyBuffer);
 
-            ArrayList<String> keys = new ArrayList<String>();
-            String key = keyBuffer.toString("US-ASCII");
-            keys.add(key); // TODO this or UTF-8? ISO-8859-1?
+            ArrayList<Key> keys = new ArrayList<Key>();
+            byte[] key = keyBuffer.array();
+            keys.add(new Key(key));
 
             cmdMessage.keys = keys;
 
@@ -150,11 +153,11 @@ public class MemcachedBinaryCommandDecoder extends FrameDecoder {
                 // TODO these are backwards from the spec, but seem to be what spymemcached demands -- which has the mistake?!
                 short expire = (short) (extrasBuffer.capacity() != 0 ? extrasBuffer.readUnsignedShort() : 0);
                 short flags = (short) (extrasBuffer.capacity() != 0 ? extrasBuffer.readUnsignedShort() : 0);
-                
+
                 // the remainder of the message -- that is, totalLength - (keyLength + extraLength) should be the payload
                 int size = totalBodyLength - keyLength - extraLength;
 
-                cmdMessage.element = new LocalCacheElement(key, flags, expire != 0 && expire < CacheElement.THIRTY_DAYS ? LocalCacheElement.Now() + expire : expire);
+                cmdMessage.element = new LocalCacheElement(new Key(key), flags, expire != 0 && expire < CacheElement.THIRTY_DAYS ? LocalCacheElement.Now() + expire : expire, 0L);
                 cmdMessage.element.setData(new byte[size]);
                 channelBuffer.readBytes(cmdMessage.element.getData(), 0, size);
             } else if (cmdType == Command.INCR || cmdType == Command.DECR) {

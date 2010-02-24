@@ -5,7 +5,7 @@ import java.io.Serializable;
 /**
  * Class for holding the current session status.
  */
-final public class SessionStatus implements Serializable {
+public final class SessionStatus implements Serializable {
 
     /**
      * Possible states that the current session is in.

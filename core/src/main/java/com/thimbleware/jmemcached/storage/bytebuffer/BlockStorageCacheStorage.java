@@ -1,82 +1,131 @@
 package com.thimbleware.jmemcached.storage.bytebuffer;
 
+import com.thimbleware.jmemcached.Key;
 import com.thimbleware.jmemcached.LocalCacheElement;
 import com.thimbleware.jmemcached.storage.CacheStorage;
 import com.thimbleware.jmemcached.storage.bytebuffer.ByteBufferBlockStore;
 import com.thimbleware.jmemcached.storage.bytebuffer.Region;
+import com.thimbleware.jmemcached.storage.hash.ConcurrentLinkedHashMap;
+import com.thimbleware.jmemcached.storage.hash.SizedItem;
+import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.buffer.ChannelBuffers;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Implementation of the concurrent (linked) sized map using the block buffer storage back end.
  *
- * TODO Rather sub-optimal global locking strategy could be improved with a more intricate striped locking implementation.
+ * TODO Rather sub-optimal global locking strategy could be improved with a more intricate :dstriped locking implementation.
  */
-public final class BlockStorageCacheStorage implements CacheStorage<String, LocalCacheElement> {
+public final class BlockStorageCacheStorage implements CacheStorage<Key, LocalCacheElement> {
 
-    final ByteBufferBlockStore blockStorage;
+    ByteBufferBlockStore[] blockStorage;
+    ReentrantReadWriteLock[] storageLock;
+
     final AtomicInteger ceilingBytes;
     final AtomicInteger maximumItems;
-    final LinkedHashMap<String, StoredValue> index;
+    final ConcurrentLinkedHashMap<Key, StoredValue> index;
+    final long maximumSizeBytes;
 
-    final ReentrantReadWriteLock storageLock;
 
     /**
      * Representation of the stored value, encoding its expiration, block region, and attached flags.
      * TODO investigate whether this can be collapsed into a subclass of LocalCacheElement instead?
      */
-    class StoredValue {
-        int flags;
-        int expire;
-        Region region;
+    class StoredValue implements SizedItem {
+        final int flags;
+        final int expire;
+        final long casUnique;
+        final int[] buckets;
+        final Region[] regions;
 
-        StoredValue(int flags, int expire, Region region) {
+        StoredValue(int flags, int expire, long casUnique, int[] buckets, Region ... regions) {
             this.flags = flags;
             this.expire = expire;
-            this.region = region;
+            this.buckets = buckets;
+            this.regions = regions;
+            this.casUnique = casUnique;
+        }
+
+        public LocalCacheElement toElement(Key key) {
+            final LocalCacheElement element = new LocalCacheElement(key, flags, expire, casUnique);
+            element.setData(getData());
+            return element;
+        }
+
+        public void free() {
+            for (int i = 0; i < regions.length; i++) {
+                final int bucket = buckets[i];
+
+                blockStorage[bucket].free(regions[i]);
+            }
+        }
+
+        public byte[] getData() {
+            ChannelBuffer result = ChannelBuffers.buffer(size());
+            for (int i = 0; i < regions.length; i++) {
+                final int bucket = buckets[i];
+                result.writeBytes(blockStorage[bucket].get(regions[i]));
+            }
+            return result.array();
+        }
+
+        public int size() {
+            int size = 0;
+            for (Region region : regions) {
+                size+= region.size;
+            }
+            return size;
         }
     }
 
-    public BlockStorageCacheStorage(ByteBufferBlockStore blockStorageParam, int ceilingBytesParam, int maximumItemsVal) {
-        this.blockStorage = blockStorageParam;
+    public BlockStorageCacheStorage(int blockStoreBuckets, int ceilingBytesParam, int blockSizeBytes, long maximumSizeBytes, int maximumItemsVal, BlockStoreFactory factory) {
+        this.blockStorage = new ByteBufferBlockStore[blockStoreBuckets];
+        this.storageLock= new ReentrantReadWriteLock[blockStoreBuckets];
+
+        long bucketSizeBytes = maximumSizeBytes / blockStoreBuckets;
+        for (int i = 0; i < blockStoreBuckets; i++) {
+            this.blockStorage[i] = factory.manufacture(bucketSizeBytes, blockSizeBytes);
+            this.storageLock[i] = new ReentrantReadWriteLock();
+        }
+
         this.ceilingBytes = new AtomicInteger(ceilingBytesParam);
         this.maximumItems = new AtomicInteger(maximumItemsVal);
-        this.storageLock = new ReentrantReadWriteLock();
+        this.maximumSizeBytes = maximumSizeBytes;
 
-        this.index = new LinkedHashMap<String, StoredValue>() {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, StoredValue> stringStoredValueEntry) {
-                try {
-                    storageLock.readLock().lock();
-                    if (blockStorage.getFreeBytes() < ceilingBytes.get() || index.size() > maximumItems.get()) {
-                        storageLock.readLock().unlock();
-                        storageLock.writeLock().lock();
-                        blockStorage.free(stringStoredValueEntry.getValue().region);
-                        storageLock.writeLock().unlock();
-                        storageLock.readLock().lock();
-
-                        return true;
-                    } else return false;
-                } finally {
-                    storageLock.readLock().unlock();
-                }
-
+        this.index = ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.LRU, maximumItemsVal, maximumSizeBytes, new ConcurrentLinkedHashMap.EvictionListener<Key, StoredValue>(){
+            public void onEviction(Key key, StoredValue value) {
+                value.free();
             }
-        };
+        });
+    }
+
+    private int pickBucket(Key key, int partitionNum) {
+        return new Random().nextInt(blockStorage.length);
+//        return Math.abs(key.hashCode() * partitionNum) % blockStorage.length;
     }
 
     public long getMemoryCapacity() {
-        return blockStorage.getStoreSizeBytes();
+        long capacity = 0;
+        for (ByteBufferBlockStore byteBufferBlockStore : blockStorage) {
+            capacity += byteBufferBlockStore.getStoreSizeBytes();
+        }
+        return capacity;
     }
 
     public long getMemoryUsed() {
-        return blockStorage.getStoreSizeBytes() - blockStorage.getFreeBytes();
+        long memUsed = 0;
+        for (ByteBufferBlockStore byteBufferBlockStore : blockStorage) {
+            memUsed += (byteBufferBlockStore.getStoreSizeBytes() - byteBufferBlockStore.getFreeBytes());
+        }
+        return memUsed;
     }
 
     public int capacity() {
@@ -88,129 +137,84 @@ public final class BlockStorageCacheStorage implements CacheStorage<String, Loca
         clear();
 
         // then ask the block store to close
-        blockStorage.close();
+        for (ByteBufferBlockStore byteBufferBlockStore : blockStorage) {
+            byteBufferBlockStore.close();
+        }
+        this.blockStorage = null;
+        this.storageLock = null;
     }
 
-    public LocalCacheElement putIfAbsent(String key, LocalCacheElement item) {
-        try {
-            storageLock.readLock().lock();
+    public LocalCacheElement putIfAbsent(Key key, LocalCacheElement item) {
+        // if the item already exists in the store, don't replace!
+        StoredValue val = index.get(key);
 
-            // if the item already exists in the store, don't replace!
-            StoredValue val = index.get(key);
-
-            // present, return current value
-            if (val != null) {
-                LocalCacheElement el = new LocalCacheElement(key, val.flags, val.expire);
-                el.setData(blockStorage.get(val.region));
-
-                return el;
-            }
-
-            storageLock.readLock().unlock();
-            put(key, item);
-            storageLock.readLock().lock();
-
-            return null;
-        } finally {
-            storageLock.readLock().unlock();
+        // present, return current value
+        if (val != null) {
+            return val.toElement(key);
         }
 
+        put(key, item);
+
+        return null;
     }
 
     /**
      * {@inheritDoc}
      */
     public boolean remove(Object key, Object value) {
-        try {
-            storageLock.readLock().lock();
-            if (!(key instanceof String) || (!(value instanceof LocalCacheElement))) return false;
-            StoredValue val = index.get((String)key);
-            LocalCacheElement el = new LocalCacheElement((String) key, val.flags, val.expire);
-            el.setData(blockStorage.get(val.region));
+        if (!(key instanceof Key) || (!(value instanceof LocalCacheElement))) return false;
+        StoredValue val = index.get(key);
+        LocalCacheElement el = val.toElement((Key) key);
 
-            if (!el.equals(value)) {
-                return false;
-            } else {
-                storageLock.readLock().unlock();
-                storageLock.writeLock().lock();
-                index.remove((String) key);
-                blockStorage.free(val.region);
-                storageLock.readLock().lock();
-                storageLock.writeLock().unlock();
+        if (!el.equals(value)) {
+            return false;
+        } else {
+            index.remove(key);
+            val.free();
 
-                return true;
-            }
-        } finally {
-            storageLock.readLock().unlock();
+            return true;
+        }
+    }
+
+    public boolean replace(Key key, LocalCacheElement LocalCacheElement, LocalCacheElement LocalCacheElement1) {
+        StoredValue val = index.get(key);
+        LocalCacheElement el = val.toElement(key);
+
+        if (!el.equals(LocalCacheElement)) {
+            return false;
+        } else {
+            // TODO not atomic; should share the write lock here
+            remove(key);
+            put(key, LocalCacheElement1);
+
+            return true;
         }
 
     }
 
-    public boolean replace(String key, LocalCacheElement LocalCacheElement, LocalCacheElement LocalCacheElement1) {
-        try {
-            storageLock.readLock().lock();
-            StoredValue val = index.get(key);
-            LocalCacheElement el = new LocalCacheElement((String) key, val.flags, val.expire);
-            el.setData(blockStorage.get(val.region));
+    public LocalCacheElement replace(Key key, LocalCacheElement LocalCacheElement) {
+        StoredValue val = index.get(key);
+        if (!index.containsKey(key)) {
+            return null;
+        } else {
+            // TODO not atomic; should share the write lock here
+            remove(key);
+            put(key, LocalCacheElement);
 
-            if (!el.equals(LocalCacheElement)) {
-                return false;
-            } else {
-                storageLock.readLock().unlock();
-                put(key, LocalCacheElement1);
-                storageLock.readLock().lock();
-
-                return true;
-            }
-        } finally {
-            storageLock.readLock().unlock();
-        }
-
-    }
-
-    public LocalCacheElement replace(String key, LocalCacheElement LocalCacheElement) {
-        try {
-            storageLock.readLock().lock();
-            StoredValue val = index.get(key);
-            if (!index.containsKey(key)) {
-                return null;
-            } else {
-                storageLock.readLock().unlock();
-                put(key, LocalCacheElement);
-                storageLock.readLock().lock();
-
-                return LocalCacheElement;
-            }
-        } finally {
-            storageLock.readLock().unlock();
+            return LocalCacheElement;
         }
     }
 
     public int size() {
-        try {
-            storageLock.readLock().lock();
-            return index.size();
-        } finally {
-            storageLock.readLock().unlock();
-        }
+        return index.size();
     }
 
     public boolean isEmpty() {
-        try {
-            storageLock.readLock().lock();
-            return index.isEmpty();
-        } finally {
-            storageLock.readLock().unlock();
-        }
+        return index.isEmpty();
     }
 
     public boolean containsKey(Object o) {
-        try {
-            storageLock.readLock().lock();
-            return index.containsKey(o);
-        } finally {
-            storageLock.readLock().unlock();
-        }
+        return index.containsKey(o);
     }
 
     public boolean containsValue(Object o) {
@@ -218,101 +222,154 @@ public final class BlockStorageCacheStorage implements CacheStorage<String, Loca
     }
 
     public LocalCacheElement get(Object key) {
+        if (!(key instanceof Key)) return null;
+        StoredValue val = index.get(key);
+        if (val == null) return null;
         try {
-            storageLock.readLock().lock();
-            if (!(key instanceof String)) return null;
-            StoredValue val = index.get(key);
-            if (val == null) return null;
-            LocalCacheElement el = new LocalCacheElement((String) key, val.flags, val.expire);
-            el.setData(blockStorage.get(val.region));
-
-            return el;
+            lockRead(val);
+            return val.toElement((Key) key);
         } finally {
-            storageLock.readLock().unlock();
+            unlockRead(val);
         }
-
     }
 
-    public LocalCacheElement put(String key, LocalCacheElement item) {
-        // absent, lock the store and put the new value in
-        try {
-            storageLock.writeLock().lock();
-            Region region = blockStorage.alloc(item.getData().length, item.getData());
+    private long getMaxPerBucketItemSize() {
+        return this.maximumSizeBytes / this.blockStorage.length;
+    }
 
-            index.put(key, new StoredValue(item.getFlags(), item.getExpire(), region));
+    public static int numBuckets(int size, int bucketSize) {
+        int mod = size % bucketSize;
+        int div = size / bucketSize;
+        return mod == 0 ? div : div + 1;
+    }
 
-            return null;
-        } finally {
-            storageLock.writeLock().unlock();
+    public LocalCacheElement put(Key key, LocalCacheElement item) {
+        if (index.containsKey(key)) remove(key);
+        
+        int numBuckets = numBuckets(item.size(), (int) getMaxPerBucketItemSize());
+        ByteBuffer readBuffer = ByteBuffer.wrap(item.getData());
+        Region[] regions = new Region[numBuckets];
+        int buckets[] = new int[numBuckets];
+        for (int i = 0; i < numBuckets; i++) {
+            int bucket = pickBucket(key, i);
+            buckets[i] = bucket;
+            storageLock[bucket].writeLock().lock();
         }
+
+
+        for (int i = 0; i < numBuckets; i++) {
+            int bucket = buckets[i];
+            final int fragmentSize = (i < numBuckets - 1) ? item.getData().length / numBuckets : readBuffer.remaining();
+            byte[] fragment = new byte[fragmentSize];
+            readBuffer.get(fragment);
+            Region region = blockStorage[bucket].alloc(fragmentSize, fragment);
+            regions[i] = region;
+        }
+
+        for (int bucket : buckets) {
+            storageLock[bucket].writeLock().unlock();
+        }
+
+        index.put(key, new StoredValue(item.getFlags(), item.getExpire(), item.getCasUnique(), buckets, regions));
+
+        return null;
     }
 
     public LocalCacheElement remove(Object key) {
-        try {
-            storageLock.readLock().lock();
-            if (!(key instanceof String)) return null;
-            StoredValue val = index.get((String)key);
-            if (val != null) {
-                LocalCacheElement el = new LocalCacheElement((String) key, val.flags, val.expire);
-                el.setData(blockStorage.get(val.region));
+        if (!(key instanceof Key)) return null;
+        StoredValue val = index.get(key);
+        if (val != null) {
+            LocalCacheElement el = val.toElement((Key) key);
+            lockWrite(val);
+            val.free();
+            unlockWrite(val);
+            el.setData(val.getData());
 
-                storageLock.readLock().unlock();
-                storageLock.writeLock().lock();
-                blockStorage.free(val.region);
-                index.remove((String) key);
-                storageLock.readLock().lock();
-                storageLock.writeLock().unlock();
+            index.remove(key);
 
-                return el;
-            } else
-                return null;
-        } finally {
-            storageLock.readLock().unlock();
-        }
+            return el;
+        } else
+            return null;
     }
 
-    public void putAll(Map<? extends String, ? extends LocalCacheElement> map) {
+    public void putAll(Map<? extends Key, ? extends LocalCacheElement> map) {
         // absent, lock the store and put the new value in
-        try {
-            storageLock.writeLock().lock();
-            for (Entry<? extends String, ? extends LocalCacheElement> entry : map.entrySet()) {
-                String key = entry.getKey();
-                LocalCacheElement item = entry.getValue();
-                Region region = blockStorage.alloc(item.getData().length, item.getData());
-
-                index.put(key, new StoredValue(item.getFlags(), item.getExpire(), region));
-
-            }
-        } finally {
-            storageLock.writeLock().unlock();
+        for (Entry<? extends Key, ? extends LocalCacheElement> entry : map.entrySet()) {
+            Key key = entry.getKey();
+            LocalCacheElement item;
+            item = entry.getValue();
+            put(key, item);
         }
     }
 
 
     public void clear() {
-        try {
-            storageLock.writeLock().lock();
-            index.clear();
-            blockStorage.clear();
-        } finally {
-            storageLock.writeLock().unlock();
+        lockWriteAll();
+        index.clear();
+        for (ByteBufferBlockStore aBlockStorage : blockStorage) {
+            aBlockStorage.clear();
+        }
+        unlockWriteAll();
+    }
+
+    public void lockReadAll() {
+        for (ReentrantReadWriteLock reentrantReadWriteLock : storageLock) {
+            reentrantReadWriteLock.readLock().lock();
         }
     }
 
-    public Set<String> keySet() {
-        try {
-            storageLock.readLock().lock();
-            return index.keySet();
-        } finally {
-            storageLock.readLock().unlock();
+    public void unlockReadAll() {
+        for (ReentrantReadWriteLock reentrantReadWriteLock : storageLock) {
+            reentrantReadWriteLock.readLock().unlock();
         }
+    }
+
+
+    public void lockWriteAll() {
+        for (ReentrantReadWriteLock reentrantReadWriteLock : storageLock) {
+            reentrantReadWriteLock.writeLock().lock();
+        }
+    }
+
+    public void unlockWriteAll() {
+        for (ReentrantReadWriteLock reentrantReadWriteLock : storageLock) {
+            reentrantReadWriteLock.writeLock().unlock();
+        }
+    }
+
+    public void lockRead(StoredValue value) {
+        for (int bucket : value.buckets) {
+            this.storageLock[bucket].readLock().lock();
+        }
+    }
+
+    public void unlockRead(StoredValue value) {
+        for (int bucket : value.buckets) {
+            this.storageLock[bucket].readLock().unlock();
+        }
+    }
+
+    public void lockWrite(StoredValue value) {
+        for (int bucket : value.buckets) {
+            this.storageLock[bucket].writeLock().lock();
+        }
+    }
+
+    public void unlockWrite(StoredValue value) {
+        for (int bucket : value.buckets) {
+            this.storageLock[bucket].writeLock().unlock();
+        }
+    }
+
+    public Set<Key> keySet() {
+        return index.keySet();
     }
 
     public Collection<LocalCacheElement> values() {
         throw new RuntimeException("operation not supporteded");
     }
 
-    public Set<Entry<String, LocalCacheElement>> entrySet() {
+    public Set<Entry<Key, LocalCacheElement>> entrySet() {
         throw new RuntimeException("operation not supporteded");
     }
 }

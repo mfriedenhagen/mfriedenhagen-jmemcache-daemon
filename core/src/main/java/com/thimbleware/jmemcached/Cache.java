@@ -28,7 +28,7 @@ public interface Cache<CACHE_ELEMENT extends CacheElement> {
      * @param time an amount of time to block this entry in the cache for further writes
      * @return the message response
      */
-    DeleteResponse delete(String key, int time);
+    DeleteResponse delete(Key key, int time);
 
     /**
      * Add an element to the cache
@@ -85,14 +85,14 @@ public interface Cache<CACHE_ELEMENT extends CacheElement> {
      * @param mod the amount to add to the value
      * @return the message response
      */
-    Integer get_add(String key, int mod);
+    Integer get_add(Key key, int mod);
 
     /**
      * Get element(s) from the cache
      * @param keys the key for the element to lookup
      * @return the element, or 'null' in case of cache miss.
      */
-    CACHE_ELEMENT[] get(String ... keys);
+    CACHE_ELEMENT[] get(Key ... keys);
 
     /**
      * Flush all cache entries
@@ -113,10 +113,6 @@ public interface Cache<CACHE_ELEMENT extends CacheElement> {
      */
     void close() throws IOException;
 
-    /**
-     * @return all keys currently held in the cache
-     */
-    Set<String> keys();
 
     /**
      * @return the # of items in the cache

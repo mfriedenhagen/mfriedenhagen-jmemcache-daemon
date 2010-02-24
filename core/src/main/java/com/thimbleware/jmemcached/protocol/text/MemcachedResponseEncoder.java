@@ -5,25 +5,38 @@ import com.thimbleware.jmemcached.CacheElement;
 import com.thimbleware.jmemcached.protocol.Command;
 import com.thimbleware.jmemcached.protocol.ResponseMessage;
 import com.thimbleware.jmemcached.protocol.exceptions.ClientException;
+import com.thimbleware.jmemcached.util.BufferUtils;
 import org.jboss.netty.channel.*;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.thimbleware.jmemcached.protocol.text.MemcachedPipelineFactory.*;
 import static java.lang.String.valueOf;
+
 import java.util.Set;
 import java.util.Map;
 
 /**
  * Response encoder for the memcached text protocol. Produces strings destined for the StringEncoder
  */
-@ChannelPipelineCoverage("all")
-public class MemcachedResponseEncoder<CACHE_ELEMENT extends CacheElement> extends SimpleChannelUpstreamHandler {
+public final class MemcachedResponseEncoder<CACHE_ELEMENT extends CacheElement> extends SimpleChannelUpstreamHandler {
 
     final Logger logger = LoggerFactory.getLogger(MemcachedResponseEncoder.class);
 
-    public static final String VALUE = "VALUE ";
+
+    public static final ChannelBuffer CRLF = ChannelBuffers.copiedBuffer("\r\n", USASCII);
+    private static final ChannelBuffer VALUE = ChannelBuffers.copiedBuffer("VALUE ", USASCII);
+    private static final ChannelBuffer EXISTS = ChannelBuffers.copiedBuffer("EXISTS\r\n", USASCII);
+    private static final ChannelBuffer NOT_FOUND = ChannelBuffers.copiedBuffer("NOT_FOUND\r\n", USASCII);
+    private static final ChannelBuffer NOT_STORED = ChannelBuffers.copiedBuffer("NOT_STORED\r\n", USASCII);
+    private static final ChannelBuffer STORED = ChannelBuffers.copiedBuffer("STORED\r\n", USASCII);
+    private static final ChannelBuffer DELETED = ChannelBuffers.copiedBuffer("DELETED\r\n", USASCII);
+    private static final ChannelBuffer END = ChannelBuffers.copiedBuffer("END\r\n", USASCII);
+    private static final ChannelBuffer OK = ChannelBuffers.copiedBuffer("OK\r\n", USASCII);
+    private static final ChannelBuffer ERROR = ChannelBuffers.copiedBuffer("ERROR\r\n", USASCII);
+    private static final ChannelBuffer CLIENT_ERROR = ChannelBuffers.copiedBuffer("CLIENT_ERROR\r\n", USASCII);
 
     /**
      * Handle exceptions in protocol processing. Exceptions are either client or internal errors.  Report accordingly.
@@ -38,13 +51,15 @@ public class MemcachedResponseEncoder<CACHE_ELEMENT extends CacheElement> extend
             throw e.getCause();
         } catch (ClientException ce) {
             if (ctx.getChannel().isOpen())
-                ctx.getChannel().write("CLIENT_ERROR\r\n");
+                ctx.getChannel().write(CLIENT_ERROR);
         } catch (Throwable tr) {
             logger.error("error", tr);
             if (ctx.getChannel().isOpen())
-                ctx.getChannel().write("ERROR\r\n");
+                ctx.getChannel().write(ERROR);
         }
     }
+
+
 
     @Override
     public void messageReceived(ChannelHandlerContext channelHandlerContext, MessageEvent messageEvent) throws Exception {
@@ -53,66 +68,93 @@ public class MemcachedResponseEncoder<CACHE_ELEMENT extends CacheElement> extend
         Command cmd = command.cmd.cmd;
 
         Channel channel = messageEvent.getChannel();
+
         if (cmd == Command.GET || cmd == Command.GETS) {
             CacheElement[] results = command.elements;
+            int totalBytes = 0;
             for (CacheElement result : results) {
                 if (result != null) {
-                    writeString(channel, VALUE);
-                    writeString(channel, result.getKeystring() + " " + result.getFlags() + " " + result.getData().length + (cmd == Command.GETS ? " " + result.getCasUnique() : "") + "\r\n");
-                    ChannelBuffer outputbuffer = ChannelBuffers.wrappedBuffer(result.getData());
-                    channel.write(outputbuffer);
-                    writeString(channel, "\r\n");
-
-                    // send response immediately
-                    channelHandlerContext.sendUpstream(messageEvent);
+                    totalBytes += result.size() + 512;
                 }
             }
-            writeString(channel, "END\r\n");
+            ChannelBuffer writeBuffer = ChannelBuffers.dynamicBuffer(totalBytes);
+
+            for (CacheElement result : results) {
+                if (result != null) {
+                    writeBuffer.writeBytes(VALUE.duplicate());
+                    writeBuffer.writeBytes(result.getKey().bytes);
+                    writeBuffer.writeByte((byte)' ');
+                    writeBuffer.writeBytes(BufferUtils.itoa(result.getFlags()));
+                    writeBuffer.writeByte((byte)' ');
+                    writeBuffer.writeBytes(BufferUtils.itoa(result.getData().length));
+                    if (cmd == Command.GETS) {
+                        writeBuffer.writeByte((byte)' ');
+                        writeBuffer.writeBytes(BufferUtils.itoa((int) result.getCasUnique()));
+                    }
+                    writeBuffer.writeByte( (byte)'\r');
+                    writeBuffer.writeByte( (byte)'\n');
+                    writeBuffer.writeBytes(result.getData());
+                    writeBuffer.writeByte( (byte)'\r');
+                    writeBuffer.writeByte( (byte)'\n');
+                }
+            }
+            writeBuffer.writeBytes(END.duplicate());
+
+            Channels.write(channel, writeBuffer);
         } else if (cmd == Command.SET || cmd == Command.CAS || cmd == Command.ADD || cmd == Command.REPLACE || cmd == Command.APPEND  || cmd == Command.PREPEND) {
-            String ret = storeResponseString(command.response);
+
             if (!command.cmd.noreply)
-                writeString(channel, ret);
+                Channels.write(channel, storeResponse(command.response));
         } else if (cmd == Command.INCR || cmd == Command.DECR) {
-            String ret = incrDecrResponseString(command.incrDecrResponse);
-            if (!command.cmd.noreply) writeString(channel, ret);
+            if (!command.cmd.noreply)
+                Channels.write(channel, incrDecrResponseString(command.incrDecrResponse));
+
         } else if (cmd == Command.DELETE) {
-            String ret = deleteResponseString(command.deleteResponse);
-            if (!command.cmd.noreply) writeString(channel, ret);
+            if (!command.cmd.noreply)
+                Channels.write(channel, deleteResponseString(command.deleteResponse));
+
         } else if (cmd == Command.STATS) {
             for (Map.Entry<String, Set<String>> stat : command.stats.entrySet()) {
                 for (String statVal : stat.getValue()) {
-                    writeString(channel, "STAT " + stat.getKey() + " " + statVal + "\r\n");
+                    StringBuilder builder = new StringBuilder();
+                    builder.append("STAT ");
+                    builder.append(stat.getKey());
+                    builder.append(" ");
+                    builder.append(String.valueOf(statVal));
+                    builder.append("\r\n");
+                    Channels.write(channel, ChannelBuffers.copiedBuffer(builder.toString(), USASCII));
                 }
             }
-            writeString(channel, "END\r\n");
+            Channels.write(channel, END.duplicate());
+
         } else if (cmd == Command.VERSION) {
-            writeString(channel, "VERSION " + command.version + "\r\n");
+            Channels.write(channel, ChannelBuffers.copiedBuffer("VERSION " + command.version + "\r\n", USASCII));
         } else if (cmd == Command.QUIT) {
-            channel.disconnect();
+            Channels.disconnect(channel);
         } else if (cmd == Command.FLUSH_ALL) {
             if (!command.cmd.noreply) {
-                String ret = command.flushSuccess ? "OK\r\n" : "ERROR\r\n";
+                ChannelBuffer ret = command.flushSuccess ? OK.duplicate() : ERROR.duplicate();
 
-                writeString(channel, ret);
+                Channels.write(channel, ret);
             }
         } else {
-            writeString(channel, "ERROR\r\n");
+            Channels.write(channel, ERROR.duplicate());
             logger.error("error; unrecognized command: " + cmd);
         }
-        
+
     }
 
-    private String deleteResponseString(Cache.DeleteResponse deleteResponse) {
-        if (deleteResponse == Cache.DeleteResponse.DELETED) return "DELETED\r\n";
-        else return "NOT_FOUND\r\n";
+    private ChannelBuffer deleteResponseString(Cache.DeleteResponse deleteResponse) {
+        if (deleteResponse == Cache.DeleteResponse.DELETED) return DELETED.duplicate();
+        else return NOT_FOUND.duplicate();
     }
 
 
-    private String incrDecrResponseString(Integer ret) {
+    private ChannelBuffer incrDecrResponseString(Integer ret) {
         if (ret == null)
-            return "NOT_FOUND\r\n";
+            return NOT_FOUND.duplicate();
         else
-            return valueOf(ret) + "\r\n";
+            return ChannelBuffers.copiedBuffer(valueOf(ret) + "\r\n", USASCII);
     }
 
     /**
@@ -122,22 +164,17 @@ public class MemcachedResponseEncoder<CACHE_ELEMENT extends CacheElement> extend
      * @param storeResponse the response code
      * @return the string to output on the network
      */
-    private String storeResponseString(Cache.StoreResponse storeResponse) {
+    private ChannelBuffer storeResponse(Cache.StoreResponse storeResponse) {
         switch (storeResponse) {
             case EXISTS:
-                return "EXISTS\r\n";
+                return EXISTS.duplicate();
             case NOT_FOUND:
-                return "NOT_FOUND\r\n";
+                return NOT_FOUND.duplicate();
             case NOT_STORED:
-                return "NOT_STORED\r\n";
+                return NOT_STORED.duplicate();
             case STORED:
-                return "STORED\r\n";
+                return STORED.duplicate();
         }
         throw new RuntimeException("unknown store response from cache: " + storeResponse);
-    }
-
-    private void writeString(Channel out, String str) {
-        ChannelBuffer outbuf = ChannelBuffers.wrappedBuffer(str.getBytes());
-        out.write(outbuf);
     }
 }

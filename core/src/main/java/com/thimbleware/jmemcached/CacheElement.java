@@ -7,7 +7,7 @@ import java.io.Serializable;
 /**
  */
 public interface CacheElement extends Serializable, SizedItem {
-    int THIRTY_DAYS = 60 * 60 * 24 * 30;
+    public final static int THIRTY_DAYS = 2592000;
 
     int size();
 
@@ -21,7 +21,7 @@ public interface CacheElement extends Serializable, SizedItem {
 
     void setData(byte[] data);
 
-    String getKeystring();
+    Key getKey();
 
     long getCasUnique();
 
@@ -29,9 +29,13 @@ public interface CacheElement extends Serializable, SizedItem {
 
     boolean isBlocked();
 
-    void setBlocked(boolean blocked);
+    void block(long blockedUntil);
 
     long getBlockedUntil();
 
-    void setBlockedUntil(long blockedUntil);
+    CacheElement append(LocalCacheElement element);
+
+    CacheElement prepend(LocalCacheElement element);
+
+    LocalCacheElement.IncrDecrResult add(int mod);
 }

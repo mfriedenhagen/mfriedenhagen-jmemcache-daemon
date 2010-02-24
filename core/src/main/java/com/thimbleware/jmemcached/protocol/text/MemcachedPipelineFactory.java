@@ -8,10 +8,16 @@ import org.jboss.netty.channel.ChannelPipelineFactory;
 import org.jboss.netty.channel.Channels;
 import org.jboss.netty.channel.group.DefaultChannelGroup;
 import org.jboss.netty.handler.codec.string.StringEncoder;
+import org.jboss.netty.handler.execution.ExecutionHandler;
+import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
+import org.jboss.netty.handler.queue.BufferedWriteHandler;
+
+import java.nio.charset.Charset;
 
 /**
  */
-public class MemcachedPipelineFactory implements ChannelPipelineFactory {
+public final class MemcachedPipelineFactory implements ChannelPipelineFactory {
+    public static final Charset USASCII = Charset.forName("US-ASCII");
 
     private Cache cache;
     private String version;
@@ -20,6 +26,10 @@ public class MemcachedPipelineFactory implements ChannelPipelineFactory {
 
     private int frameSize;
     private DefaultChannelGroup channelGroup;
+    private final MemcachedResponseEncoder memcachedResponseEncoder = new MemcachedResponseEncoder();
+
+    private final MemcachedCommandHandler memcachedCommandHandler;
+
 
     public MemcachedPipelineFactory(Cache cache, String version, boolean verbose, int idleTime, int frameSize, DefaultChannelGroup channelGroup) {
         this.cache = cache;
@@ -28,33 +38,19 @@ public class MemcachedPipelineFactory implements ChannelPipelineFactory {
         this.idleTime = idleTime;
         this.frameSize = frameSize;
         this.channelGroup = channelGroup;
+        memcachedCommandHandler = new MemcachedCommandHandler(this.cache, this.version, this.verbose, this.idleTime, this.channelGroup);
     }
 
-    public ChannelPipeline getPipeline() throws Exception {
-        ChannelPipeline pipeline = Channels.pipeline();
+    public final ChannelPipeline getPipeline() throws Exception {
         SessionStatus status = new SessionStatus().ready();
-        pipeline.addLast("frameHandler", new MemcachedFrameDecoder(status, frameSize));
-        pipeline.addAfter("frameHandler", "commandDecoder", createMemcachedCommandDecoder(status));
-        pipeline.addAfter("commandDecoder", "commandHandler", createMemcachedCommandHandler(cache, version, verbose, idleTime, channelGroup));
-        pipeline.addAfter("commandHandler", "responseEncoder", createMemcachedResponseEncoder());
-        pipeline.addAfter("responseEncoder", "responseHandler", createResponseEncoder());
 
-        return pipeline;
+        return Channels.pipeline(
+                new MemcachedFrameDecoder(status, frameSize),
+                new MemcachedCommandDecoder(status),
+                memcachedCommandHandler,
+                memcachedResponseEncoder);
     }
 
-    private StringEncoder createResponseEncoder() {
-        return new StringEncoder();
-    }
 
-    private MemcachedResponseEncoder createMemcachedResponseEncoder() {
-        return new MemcachedResponseEncoder();
-    }
 
-    private MemcachedCommandDecoder createMemcachedCommandDecoder(SessionStatus status) {
-        return new MemcachedCommandDecoder(status);
-    }
-
-    protected MemcachedCommandHandler createMemcachedCommandHandler(Cache cache, String version, boolean verbose, int idleTime, DefaultChannelGroup channelGroup) {
-        return new MemcachedCommandHandler(cache, version, verbose, idleTime, channelGroup);
-    }
 }

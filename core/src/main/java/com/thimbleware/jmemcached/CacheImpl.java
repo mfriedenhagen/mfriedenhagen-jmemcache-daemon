@@ -20,56 +20,52 @@ import com.thimbleware.jmemcached.storage.CacheStorage;
 import java.io.IOException;
 import static java.lang.Integer.parseInt;
 import static java.lang.String.valueOf;
-import java.nio.ByteBuffer;
+
 import java.util.Set;
-import java.util.concurrent.Delayed;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.DelayQueue;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.*;
 
 /**
  * Default implementation of the cache handler, supporting local memory cache elements.
  */
 public final class CacheImpl extends AbstractCache<LocalCacheElement> implements Cache<LocalCacheElement> {
 
-    final CacheStorage<String, LocalCacheElement> storage;
+    final CacheStorage<Key, LocalCacheElement> storage;
     final DelayQueue<DelayedMCElement> deleteQueue;
-    final ReadWriteLock deleteQueueReadWriteLock;
+    private final ScheduledExecutorService scavenger;
 
     /**
      * @inheritDoc
      */
-    public CacheImpl(CacheStorage<String, LocalCacheElement> storage) {
+    public CacheImpl(CacheStorage<Key, LocalCacheElement> storage) {
         super();
         this.storage = storage;
         deleteQueue = new DelayQueue<DelayedMCElement>();
-        deleteQueueReadWriteLock = new ReentrantReadWriteLock();
+
+        scavenger = Executors.newScheduledThreadPool(1);
+        scavenger.scheduleAtFixedRate(new Runnable(){
+            public void run() {
+                asyncEventPing();
+            }
+        }, 10, 2, TimeUnit.SECONDS);
     }
-    
+
     /**
      * @inheritDoc
      */
-    public DeleteResponse delete(String key, int time) {
+    public DeleteResponse delete(Key key, int time) {
         boolean removed = false;
 
         // delayed remove
         if (time != 0) {
             // block the element and schedule a delete; replace its entry with a blocked element
-            LocalCacheElement placeHolder = new LocalCacheElement(key, 0, 0);
+            LocalCacheElement placeHolder = new LocalCacheElement(key, 0, 0, 0L);
             placeHolder.setData(new byte[]{});
-            placeHolder.setBlocked(true);
-            placeHolder.setBlockedUntil(Now() + (long)time);
+            placeHolder.block(Now() + (long)time);
 
             storage.replace(key, placeHolder);
 
             // this must go on a queue for processing later...
-            try {
-                deleteQueueReadWriteLock.writeLock().lock();
-                deleteQueue.add(new DelayedMCElement(placeHolder));
-            } finally {
-                deleteQueueReadWriteLock.writeLock().unlock();
-            }
+            deleteQueue.add(new DelayedMCElement(placeHolder));
         } else
             removed = storage.remove(key) != null;
 
@@ -82,36 +78,27 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
      * @inheritDoc
      */
     public StoreResponse add(LocalCacheElement e) {
-        return storage.putIfAbsent(e.getKeystring(), e) == null ? StoreResponse.STORED : StoreResponse.NOT_STORED;
+        return storage.putIfAbsent(e.getKey(), e) == null ? StoreResponse.STORED : StoreResponse.NOT_STORED;
     }
 
     /**
      * @inheritDoc
      */
     public StoreResponse replace(LocalCacheElement e) {
-        return storage.replace(e.getKeystring(), e) != null ? StoreResponse.STORED : StoreResponse.NOT_STORED;
+        return storage.replace(e.getKey(), e) != null ? StoreResponse.STORED : StoreResponse.NOT_STORED;
     }
 
     /**
      * @inheritDoc
      */
     public StoreResponse append(LocalCacheElement element) {
-        LocalCacheElement old = storage.get(element.getKeystring());
+        LocalCacheElement old = storage.get(element.getKey());
         if (old == null || isBlocked(old) || isExpired(old)) {
             getMisses.incrementAndGet();
             return StoreResponse.NOT_FOUND;
         }
         else {
-            int newLength = old.getData().length + element.getData().length;
-            LocalCacheElement replace = new LocalCacheElement(old.getKeystring(), old.getFlags(), old.getExpire());
-            ByteBuffer b = ByteBuffer.allocate(newLength);
-            b.put(old.getData());
-            b.put(element.getData());
-            replace.setData(new byte[newLength]);
-            b.flip();
-            b.get(replace.getData());
-            replace.setCasUnique(replace.getCasUnique() + 1);
-            return storage.replace(old.getKeystring(), old, replace) ? StoreResponse.STORED : StoreResponse.NOT_STORED;
+            return storage.replace(old.getKey(), old, old.append(element)) ? StoreResponse.STORED : StoreResponse.NOT_STORED;
         }
     }
 
@@ -119,23 +106,13 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
      * @inheritDoc
      */
     public StoreResponse prepend(LocalCacheElement element) {
-        LocalCacheElement old = storage.get(element.getKeystring());
+        LocalCacheElement old = storage.get(element.getKey());
         if (old == null || isBlocked(old) || isExpired(old)) {
             getMisses.incrementAndGet();
             return StoreResponse.NOT_FOUND;
         }
         else {
-            int newLength = old.getData().length + element.getData().length;
-
-            LocalCacheElement replace = new LocalCacheElement(old.getKeystring(), old.getFlags(), old.getExpire());
-            ByteBuffer b = ByteBuffer.allocate(newLength);
-            b.put(element.getData());
-            b.put(old.getData());
-            replace.setData(new byte[newLength]);
-            b.flip();
-            b.get(replace.getData());
-            replace.setCasUnique(replace.getCasUnique() + 1);
-            return storage.replace(old.getKeystring(), old, replace) ? StoreResponse.STORED : StoreResponse.NOT_STORED;
+            return storage.replace(old.getKey(), old, old.prepend(element)) ? StoreResponse.STORED : StoreResponse.NOT_STORED;
         }
     }
 
@@ -147,7 +124,7 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
 
         e.setCasUnique(casCounter.getAndIncrement());
 
-        storage.put(e.getKeystring(), e);
+        storage.put(e.getKey(), e);
 
         return StoreResponse.STORED;
     }
@@ -157,7 +134,7 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
      */
     public StoreResponse cas(Long cas_key, LocalCacheElement e) {
         // have to get the element
-        LocalCacheElement element = storage.get(e.getKeystring());
+        LocalCacheElement element = storage.get(e.getKey());
         if (element == null || isBlocked(element)) {
             getMisses.incrementAndGet();
             return StoreResponse.NOT_FOUND;
@@ -165,7 +142,7 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
 
         if (element.getCasUnique() == cas_key) {
             // casUnique matches, now set the element
-            if (storage.replace(e.getKeystring(), element, e)) return StoreResponse.STORED;
+            if (storage.replace(e.getKey(), element, e)) return StoreResponse.STORED;
             else {
                 getMisses.incrementAndGet();
                 return StoreResponse.NOT_FOUND;
@@ -179,25 +156,14 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
     /**
      * @inheritDoc
      */
-    public Integer get_add(String key, int mod) {
+    public Integer get_add(Key key, int mod) {
         LocalCacheElement old = storage.get(key);
         if (old == null || isBlocked(old) || isExpired(old)) {
             getMisses.incrementAndGet();
             return null;
         } else {
-            // TODO handle parse failure!
-            int old_val = parseInt(new String(old.getData())) + mod; // change value
-            if (old_val < 0) {
-                old_val = 0;
-
-            } // check for underflow
-
-            byte[] newData = valueOf(old_val).getBytes();
-
-            LocalCacheElement replace = new LocalCacheElement(old.getKeystring(), old.getFlags(), old.getExpire());
-            replace.setData(newData);
-            replace.setCasUnique(replace.getCasUnique() + 1);
-            return storage.replace(old.getKeystring(), old, replace) ? old_val : null;
+            LocalCacheElement.IncrDecrResult result = old.add(mod);
+            return storage.replace(old.getKey(), old, result.replace) ? result.oldValue : null;
         }
     }
 
@@ -213,14 +179,14 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
     /**
      * @inheritDoc
      */
-    public LocalCacheElement[] get(String ... keys) {
+    public LocalCacheElement[] get(Key ... keys) {
         getCmds.incrementAndGet();//updates stats
 
         LocalCacheElement[] elements = new LocalCacheElement[keys.length];
         int x = 0;
         int hits = 0;
         int misses = 0;
-        for (String key : keys) {
+        for (Key key : keys) {
             LocalCacheElement e = storage.get(key);
             if (e == null || isExpired(e) || e.isBlocked()) {
                 misses++;
@@ -261,6 +227,7 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
      * @inheritDoc
      */
     public void close() throws IOException {
+        scavenger.shutdown();;
         storage.close();
     }
 
@@ -268,7 +235,7 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
      * @inheritDoc
      */
     @Override
-    public Set<String> keys() {
+    protected Set<Key> keys() {
         return storage.keySet();
     }
 
@@ -301,15 +268,9 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
      */
     @Override
     public void asyncEventPing() {
-        try {
-            deleteQueueReadWriteLock.writeLock().lock();
-            DelayedMCElement toDelete = deleteQueue.poll();
-            if (toDelete != null) {
-                storage.remove(toDelete.element.getKeystring());
-            }
-
-        } finally {
-            deleteQueueReadWriteLock.writeLock().unlock();
+        DelayedMCElement toDelete = deleteQueue.poll();
+        if (toDelete != null) {
+            storage.remove(toDelete.element.getKey());
         }
     }
 
@@ -332,7 +293,7 @@ public final class CacheImpl extends AbstractCache<LocalCacheElement> implements
             if (!(delayed instanceof CacheImpl.DelayedMCElement))
                 return -1;
             else
-                return element.getKeystring().compareTo(((DelayedMCElement)delayed).element.getKeystring());
+                return new String(element.getKey().bytes).compareTo(new String(((DelayedMCElement)delayed).element.getKey().bytes));
         }
     }
 }
