@@ -7,6 +7,8 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.HashSet;
 
+import static java.lang.String.*;
+
 /**
  * Abstract implementation of a cache handler for the memcache daemon; provides some convenience methods and
  * a general framework for implementation
@@ -15,11 +17,11 @@ public abstract class AbstractCache<CACHE_ELEMENT extends CacheElement> implemen
 
     protected final AtomicLong started = new AtomicLong();
 
-    protected AtomicInteger getCmds = new AtomicInteger();
-    protected AtomicInteger setCmds = new AtomicInteger();
-    protected AtomicInteger getHits = new AtomicInteger();
-    protected AtomicInteger getMisses = new AtomicInteger();
-    protected AtomicLong casCounter = new AtomicLong(1);
+    protected final AtomicInteger getCmds = new AtomicInteger();
+    protected final AtomicInteger setCmds = new AtomicInteger();
+    protected final AtomicInteger getHits = new AtomicInteger();
+    protected final AtomicInteger getMisses = new AtomicInteger();
+    protected final AtomicLong casCounter = new AtomicLong(1);
 
     public AbstractCache() {
         initStats();
@@ -32,7 +34,7 @@ public abstract class AbstractCache<CACHE_ELEMENT extends CacheElement> implemen
         return (int) (System.currentTimeMillis() / 1000);
     }
 
-    public abstract Set<String> keys();
+    protected abstract Set<Key> keys();
 
     public abstract long getCurrentItems();
 
@@ -41,19 +43,19 @@ public abstract class AbstractCache<CACHE_ELEMENT extends CacheElement> implemen
     public abstract long getCurrentBytes();
 
 
-    public int getGetCmds() {
+    public final int getGetCmds() {
         return getCmds.get();
     }
 
-    public int getSetCmds() {
+    public final int getSetCmds() {
         return setCmds.get();
     }
 
-    public int getGetHits() {
+    public final int getGetHits() {
         return getHits.get();
     }
 
-    public int getGetMisses() {
+    public final int getGetMisses() {
         return getMisses.get();
     }
 
@@ -63,32 +65,24 @@ public abstract class AbstractCache<CACHE_ELEMENT extends CacheElement> implemen
      * @param arg additional arguments to the stats command
      * @return the full command response
      */
-    public Map<String, Set<String>> stat(String arg) {
+    public final Map<String, Set<String>> stat(String arg) {
         Map<String, Set<String>> result = new HashMap<String, Set<String>>();
-
-        if ("keys".equals(arg)) {
-            for (String key : this.keys()) {
-                multiSet(result, "key", key);
-            }
-
-            return result;
-        }
 
         // stats we know
         multiSet(result, "version", MemCacheDaemon.memcachedVersion);
-        multiSet(result, "cmd_gets", java.lang.String.valueOf(getGetCmds()));
-        multiSet(result, "cmd_sets", java.lang.String.valueOf(getSetCmds()));
-        multiSet(result, "get_hits", java.lang.String.valueOf(getGetHits()));
-        multiSet(result, "get_misses", java.lang.String.valueOf(getGetMisses()));
-        multiSet(result, "time", java.lang.String.valueOf(java.lang.String.valueOf(Now())));
-        multiSet(result, "uptime", java.lang.String.valueOf(Now() - this.started.longValue()));
-        multiSet(result, "cur_items", java.lang.String.valueOf(this.getCurrentItems()));
-        multiSet(result, "limit_maxbytes", java.lang.String.valueOf(this.getLimitMaxBytes()));
-        multiSet(result, "current_bytes", java.lang.String.valueOf(this.getCurrentBytes()));
-        multiSet(result, "free_bytes", java.lang.String.valueOf(Runtime.getRuntime().freeMemory()));
+        multiSet(result, "cmd_gets", valueOf(getGetCmds()));
+        multiSet(result, "cmd_sets", valueOf(getSetCmds()));
+        multiSet(result, "get_hits", valueOf(getGetHits()));
+        multiSet(result, "get_misses", valueOf(getGetMisses()));
+        multiSet(result, "time", valueOf(valueOf(Now())));
+        multiSet(result, "uptime", valueOf(Now() - this.started.longValue()));
+        multiSet(result, "cur_items", valueOf(this.getCurrentItems()));
+        multiSet(result, "limit_maxbytes", valueOf(this.getLimitMaxBytes()));
+        multiSet(result, "current_bytes", valueOf(this.getCurrentBytes()));
+        multiSet(result, "free_bytes", valueOf(Runtime.getRuntime().freeMemory()));
 
         // Not really the same thing precisely, but meaningful nonetheless. potentially this should be renamed
-        multiSet(result, "pid", java.lang.String.valueOf(Thread.currentThread().getId()));
+        multiSet(result, "pid", valueOf(Thread.currentThread().getId()));
 
         // stuff we know nothing about; gets faked only because some clients expect this
         multiSet(result, "rusage_user", "0:0");
@@ -116,10 +110,10 @@ public abstract class AbstractCache<CACHE_ELEMENT extends CacheElement> implemen
      */
     protected void initStats() {
         started.set(System.currentTimeMillis());
-        getCmds.set(0);
-        setCmds.set(0);
-        getHits.set(0);
-        getMisses.set(0);
+//        getCmds.set(0);
+//        setCmds.set(0);
+//        getHits.set(0);
+//        getMisses.set(0);
 
 
     }
