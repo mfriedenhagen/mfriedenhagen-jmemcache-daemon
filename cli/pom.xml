@@ -1,0 +1,167 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>jmemcached-cli</artifactId>
+    <packaging>jar</packaging>
+    <name>jmemcached Command Line Interface</name>
+    <description>Command line front end interface to the cache daemon.</description>
+
+    <parent>
+        <groupId>com.thimbleware.jmemcached</groupId>
+        <artifactId>jmemcached-parent</artifactId>
+        <version>0.9.3-SNAPSHOT</version>
+        <relativePath>../</relativePath>
+    </parent>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.5</source>
+                    <target>1.5</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!-- NOTE: We don't need a groupId specification because the group is
+                  org.apache.maven.plugins ...which is assumed by default.
+                -->
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <descriptors>
+                        <descriptor>src/main/assembly/assembly.xml</descriptor>
+                    </descriptors>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.thimbleware.jmemcached.Main</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id><!-- this is used for inheritance merges -->
+                        <phase>package</phase><!-- append to the packaging phase. -->
+                        <goals>
+                            <goal>attached</goal><!-- goals == mojos -->
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <configuration>
+                            <tasks>
+
+                                <taskdef name="deb" classname="org.vafer.jdeb.ant.DebAntTask" />
+
+                                <copy todir="${project.build.directory}/control">
+                                    <fileset dir="src/main/resources/deb/control" />
+                                    <filterset begintoken="[[" endtoken="]]">
+                                        <filter token="version" value="${project.version}" />
+                                    </filterset>
+                                </copy>
+
+                                <mkdir dir="${project.build.directory}/deb-jar-contents/usr/share/jmemcached" />
+
+                                <copy file="${project.build.directory}/${project.artifactId}-${project.version}-main.jar" todir="${project.build.directory}/deb-jar-contents/usr/share/jmemcached" />
+
+                                <deb destfile="${project.build.directory}/${project.artifactId}-${project.version}.deb" control="${project.build.directory}/control">
+                                    <tarfileset dir="${project.build.directory}/classes/deb/init.d/" prefix="/etc/init.d" filemode="755" />
+
+                                    <data src="${project.build.directory}/deb-jar-contents" />
+                                </deb>
+
+                            </tasks>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+
+                    </execution>
+                </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.vafer</groupId>
+                        <artifactId>jdeb</artifactId>
+                        <version>0.7</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>1.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-artifacts</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>attach-artifact</goal>
+                        </goals>
+                        <configuration>
+                            <artifacts>
+                                <artifact>
+                                    <file>${project.build.directory}/${project.artifactId}-${project.version}.deb</file>
+                                    <type>deb</type>
+                                </artifact>
+                            </artifacts>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+
+
+    <dependencies>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.1</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <artifactId>jmemcached-core</artifactId>
+            <groupId>com.thimbleware.jmemcached</groupId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <artifactId>slf4j-jdk14</artifactId>
+            <groupId>org.slf4j</groupId>
+            <version>1.5.3</version>
+        </dependency>
+
+        <dependency>
+            <artifactId>commons-cli</artifactId>
+            <groupId>commons-cli</groupId>
+            <version>1.1</version>
+        </dependency>
+
+    </dependencies>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>jdepend-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </reporting>
+
+</project>
