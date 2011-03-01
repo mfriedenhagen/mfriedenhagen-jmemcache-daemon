@@ -6,7 +6,7 @@
     <packaging>pom</packaging>
     <version>1.0.1-SNAPSHOT</version>
     <name>jmemcached Parent Project</name>
-    <url>http://www.thimbleware.com/projects/jmemcached</url>
+    <url>http://code.google.com/p/jmemcache-daemon/</url>
     <description>Caching server speaking the memcached protocol, written in Java.</description>
 
     <modules>
@@ -31,6 +31,31 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>display-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>test-compile</phase>
+                        <goals>
+                            <goal>tree</goal>
+                            <goal>analyze-only</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <source>1.5</source>
@@ -40,38 +65,6 @@
         </plugins>
     </build>
 
-    <profiles>
-        <profile>
-            <id>release-sign-artifacts</id>
-            <activation>
-                <property>
-                    <name>performRelease</name>
-                    <value>true</value>
-                </property>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-gpg-plugin</artifactId>
-                        <version>1.0-alpha-4</version>
-                        <executions>
-                            <execution>
-                                <id>sign-artifacts</id>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                        <configuration>
-                            <useAgent>true</useAgent>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 
     <inceptionYear>2008</inceptionYear>
 
@@ -101,50 +94,62 @@
 
     <distributionManagement>
         <repository>
-            <id>sonatype-nexus-staging</id>
-            <name>Nexus Release Repository</name>
-            <url>http://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+            <id>google-code-releases</id>
+            <name>Google Code Releases</name>
+            <url>http://oss.sonatype.org/content/repositories/googlecode-releases</url>
         </repository>
         <snapshotRepository>
             <id>google-code-snapshots</id>
             <name>Google Code Releasess</name>
             <url>http://oss.sonatype.org/content/repositories/googlecode-snapshots</url>
         </snapshotRepository>
+        <site>
+            <id>google-code-site</id>
+            <name>Google Code Site</name>
+            <url>file:///var/www/sites</url>
+        </site>
     </distributionManagement>
 
     <!-- note developer connection is the local repository, not remote. won't work for hudson, etc. -->
     <scm>
-        <url>http://code.google.com/p/jmemcache-daemon/source/checkout</url>
         <connection>
             scm:hg:https://jmemcache-daemon.googlecode.com/hg/
         </connection>
+        <url>
+            http://code.google.com/p/jmemcache-daemon/source/list
+        </url>
         <developerConnection>
             scm:hg:file://${basedir}
         </developerConnection>
     </scm>
 
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
+    <properties>
+        <!--
+            compare:
+            http://docs.codehaus.org/display/MAVENUSER/POM+Element+for+Source+File+Encoding
+        -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
 
-<!--     <repositories> -->
+    <repositories>
 
-<!--         <repository> -->
-<!--             <id>repository.jboss.org</id> -->
-<!--             <url>http://repository.jboss.org/nexus/content/groups/public/</url> -->
-<!--             <snapshots> -->
-<!--                 <enabled>false</enabled> -->
-<!--             </snapshots> -->
-<!--         </repository> -->
+         <repository>
+             <id>repository.jboss.org</id>
+             <url>http://repository.jboss.org/nexus/content/groups/public/</url>
+             <snapshots>
+                 <enabled>false</enabled>
+             </snapshots>
+         </repository>
 
-<!--         <repository> -->
-<!--             <id>spy</id> -->
-<!--             <name>Spy Repository</name> -->
-<!--             <layout>default</layout> -->
-<!--             <url>http://bleu.west.spy.net/~dustin/m2repo/</url> -->
-<!--             <snapshots> -->
-<!--                 <enabled>false</enabled> -->
-<!--             </snapshots> -->
-<!--         </repository> -->
-<!--     </repositories> -->
+    </repositories>
 
 
     <dependencyManagement>
@@ -179,7 +184,139 @@
                 <artifactId>netty</artifactId>
                 <version>3.2.3.Final</version>
             </dependency>
+            <dependency>
+                <groupId>spy</groupId>
+                <artifactId>memcached</artifactId>
+                <version>2.4.2</version>
+            </dependency>
+            <dependency>
+                <artifactId>commons-cli</artifactId>
+                <groupId>commons-cli</groupId>
+                <version>1.1</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.collections</groupId>
+                <artifactId>google-collections</artifactId>
+                <version>1.0-rc2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.resteasy</groupId>
+                <artifactId>resteasy-jaxrs</artifactId>
+                <version>1.1.GA</version>
+            </dependency>
+            <dependency>
+                <groupId>org.scala-lang</groupId>
+                <artifactId>scala-library</artifactId>
+                <version>2.8.0.r18462-b20090811081019</version>
+            </dependency>
+
+            <!-- include our own versioned dependencies -->
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>jmemcached-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>jmemcached-cli</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
         </dependencies>
     </dependencyManagement>
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-project-info-reports-plugin</artifactId>
+                <!-- Avoid hanging site generation waiting for 'http://snapshots.maven.codehaus.org/maven2'
+                     see http://jira.codehaus.org/browse/MPIR-137 
+                -->
+                <configuration>
+                    <dependencyLocationsEnabled>false</dependencyLocationsEnabled>
+                    <dependencyDetailsEnabled>false</dependencyDetailsEnabled>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <show>private</show>
+                    <quiet>true</quiet>
+                    <links>
+                        <link>http://java.sun.com/j2se/1.5.0/docs/api/</link>
+                    </links>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>taglist-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-report-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-project-info-reports-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>2.4</version>
+                <configuration>
+                    <enableRulesSummary>false</enableRulesSummary>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <configuration>
+                    <linkXref>true</linkXref>
+                    <includeTests>true</includeTests>
+                    <sourceEncoding>utf-8</sourceEncoding>
+                    <minimumTokens>100</minimumTokens>
+                    <targetJdk>1.5</targetJdk>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>2.3.1</version>
+                <configuration>
+                    <xmlOutput>true</xmlOutput>
+                    <threshold>Low</threshold>
+                    <effort>Max</effort>
+                    <debug>false</debug>
+                    <relaxed>false</relaxed>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>cobertura-maven-plugin</artifactId>
+                <configuration>
+                    <formats>
+                        <format>xml</format>
+                        <format>html</format>
+                    </formats>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>jdepend-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </reporting>
 </project>
